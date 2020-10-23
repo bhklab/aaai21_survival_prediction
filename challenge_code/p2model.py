@@ -14,11 +14,15 @@ from torchvision.transforms import Compose
 import pandas as pd
 from sklearn.metrics import roc_auc_score, average_precision_score, mean_squared_error
 from sklearn.model_selection import train_test_split
+from lifelines.utils import concordance_index
 
 from .p2dataset import RadcureDataset
 from .transforms import *
 #from .nets.branched import Default, Default_XL, Default_Pro, Default_Pro_Max, Default_Boost, Default_Extra
 from .nets.dual import *
+
+from torchmtlr import mtlr_neg_log_likelihood, mtlr_survival, mtlr_risk
+
 
 class Challenger(pl.LightningModule):
     """A simple convolutional neural network (CNN) for survival prediction.
@@ -53,22 +57,10 @@ class Challenger(pl.LightningModule):
 
         self.hparams = hparams
         # Default, Default_Air, Default_GN, Default_3X, Default_XL, Default_Pro, Default_Pad, Default_Pro_Max
-        if hparams.design.lower() == 'pro':
-            self.model = Dual_Pro()
-        elif hparams.design.lower() == 'test':
-            self.model = Dual_Test()
-        elif hparams.design.lower() == 'hope':
-            self.model = Dual_Hope()
-        elif hparams.design.lower() == 'dunno':
-            self.model = Dual_Dunno()
-        elif hparams.design.lower() == 'dropout':
-            self.model = Dual_Drop()
-        elif hparams.design.lower() == 'dropzero':
-            self.model = Dual_Drop0()
-        elif hparams.design.lower() == 'lite':
-            self.model = Dual_Lite()
-        else:
-            self.model = Dual_Base()
+        self.model = Dual_MTLR(dense_factor=1, 
+                               n_img_dense=2,    # default==1
+                               n_concat_dense=0, # default==0
+                               num_events=2)     # added `cancer_death` in p2dataset.py line #101:102
         
         self.apply (self.init_params)
 
@@ -86,6 +78,7 @@ class Challenger(pl.LightningModule):
             The predicted logits.
         """
         x = self.model (x)
+        #print (x.shape)
         return x
 
     def init_params(self, m: torch.nn.Module):
@@ -142,17 +135,21 @@ class Challenger(pl.LightningModule):
             ToTensor(),
             #lambda x: torch.randn(1, 50, 50, 50)
         ])
+        print(self.hparams)
         full_dataset = RadcureDataset(self.hparams.root_directory,
                                       self.hparams.clinical_data_path,
                                       self.hparams.patch_size,
+                                      target_col=["target_binary", "survival_time"],
                                       train=True,
                                       transform=train_transform,
                                       cache_dir=self.hparams.cache_dir,
                                       num_workers=self.hparams.num_workers)
-        test_dataset = RadcureDataset("/cluster/projects/radiomics/RADCURE-challenge/data/test",
-                                      "/cluster/projects/radiomics/RADCURE-challenge/data/test/clinical.csv",
+#         test_dataset = RadcureDataset("/cluster/projects/radiomics/RADCURE-challenge/data",
+#                                       "/cluster/projects/radiomics/RADCURE-challenge/data/test/clinical.csv",
+        test_dataset = RadcureDataset(self.hparams.root_directory,
+                                      self.hparams.clinical_data_path,
                                       self.hparams.patch_size,
-                                      train=False,#set back to False at test phase
+                                      train=True,#set back to False at test phase
                                       transform=test_transform,
                                       cache_dir=self.hparams.cache_dir,
                                       num_workers=self.hparams.num_workers)
@@ -206,7 +203,7 @@ class Challenger(pl.LightningModule):
                          weight_decay=self.hparams.weight_decay)
         scheduler = {
             "scheduler": MultiStepLR(optimizer, milestones=[60, 160, 360]),
-            "monitor": "val_loss",
+            "monitor": "loss",
         }
         return [optimizer], [scheduler]
 
@@ -217,11 +214,12 @@ class Challenger(pl.LightningModule):
         """
         x, y = batch
         output = self.forward(x).squeeze(1)
-        loss = F.binary_cross_entropy_with_logits(output,
-                                                  y.float(),
-                                                  pos_weight=self.pos_weight)
-        logs = {'training/loss': loss}
-        return {'loss': loss, 'log': logs}
+        # print (type(output))
+        # loss = F.binary_cross_entropy_with_logits(output, y.float(), pos_weight=self.pos_weight)
+        loss = mtlr_neg_log_likelihood(output, y.float(), self.model, self.hparams.c1, average=True)
+        self.log('training/loss', loss)
+        
+        return {'loss': loss}
 
     def validation_step(self, batch, batch_idx):
         """Run a single validation step on a batch of samples.
@@ -230,10 +228,11 @@ class Challenger(pl.LightningModule):
         """
         x, y = batch
         output = self.forward(x).squeeze(1)
-        loss = F.binary_cross_entropy_with_logits(output,
-                                                  y.float(),
-                                                  pos_weight=self.pos_weight)
+        # print (type(output))
+        # loss = F.binary_cross_entropy_with_logits(output, y.float(), pos_weight=self.pos_weight)
+        loss = mtlr_neg_log_likelihood(output, y.float(), self.model, self.hparams.c1, average=True)
         pred_prob = torch.sigmoid(output)
+        
         return {"loss": loss, "pred_prob": pred_prob, "y": y}
 
     def validation_epoch_end(self, outputs):
@@ -241,26 +240,36 @@ class Challenger(pl.LightningModule):
 
         This method is called automatically by pytorch-lightning.
         """
-        loss = torch.stack([x["loss"] for x in outputs]).mean()
-        pred_prob = torch.cat([x["pred_prob"] for x in outputs]).detach().cpu().numpy()
-        y = torch.cat([x["y"] for x in outputs]).detach().cpu().numpy()
-        #print (y)
-        #print (pred_prob)
+        loss        = torch.stack([x["loss"] for x in outputs]).mean()
+        pred_prob   = torch.cat([x["pred_prob"] for x in outputs]).detach().cpu().numpy()          
+        y           = torch.cat([x["y"] for x in outputs]).detach().cpu().numpy()
+        
+        pred_event  = pred_prob[:,:pred_prob.shape[-1]//2]
+        y_event     = y[:,:y.shape[-1]//2]
+        # pred_risk = mtlr_risk(pred_prob, 2).cpu().numpy()
+        # print(pred_risk)
+        # ci_1 = concordance_index(data_test["time"], -pred_risk[:, 0], event_observed=data_test["event"] == 1)
+        # ci_2 = concordance_index(data_test["time"], -pred_risk[:, 1], event_observed=data_test["event"] == 2)
+        # print(roc_auc_score(y_event, pred_event))
         try:
-            roc_auc_binary = roc_auc_score(y[:,0], pred_prob[:,0])
-        except ValueError:
-            roc_auc_binary = float("nan")
-        avg_prec_binary = average_precision_score(y[:,0], pred_prob[:,0])
-        mse_time = mean_squared_error(y[:,1], pred_prob[:,1])
-        # log loss and metrics to Tensorboard
-        log = {
-            "validation/loss": loss,
-            "validation/roc_auc_binary": roc_auc_binary,
-            "validation/precision_binary": avg_prec_binary,
-            "validation/mse_time": mse_time
+            roc_auc_total = roc_auc_score(y, pred_prob, average='samples')
+        except ValueError as e:
+            roc_auc_total = float("nan")
+        
+        avg_prec_total = average_precision_score(y, pred_prob, average='samples')
+        # mse_time = mean_squared_error(y, pred_prob)
 
-        }
-        return {"val_loss": loss, "roc_auc": roc_auc_binary, "log": log}
+        # log loss and metrics to Tensorboard
+        log = {"val/loss": loss,
+               "val/roc_auc": roc_auc_total,
+               # "val/roc_auc_cancer": roc_auc_cancer,
+               "val/precision": avg_prec_total,
+               # "val/precision_cancer": avg_prec_cancer,
+               # "val/mse_time": mse_time
+               }
+        
+        self.log_dict(log)
+        return {"loss": loss, "roc_auc": roc_auc_total}
 
     def test_step(self, batch, batch_idx):
         """Run a single test step on a batch of samples.
@@ -276,26 +285,32 @@ class Challenger(pl.LightningModule):
         """
         pred_prob = torch.cat([x["pred_prob"] for x in outputs]).detach().cpu().numpy()
         y = torch.cat([x["y"] for x in outputs]).detach().cpu().numpy()
+        
         try:
             roc_auc = roc_auc_score(y, pred_prob)
         except ValueError:
             roc_auc = float("nan")
+            
         avg_prec = average_precision_score(y, pred_prob)
         ids = self.test_dataset.clinical_data["Study ID"]
+        np.save(self.hparams.pred_save_path, pred_prob)
+        np.save(self.hparams.pred_save_path+"idx.npy", np.array(ids))
+        test = np.append(np.copy(pred_prob), np.array(ids), axis=1)
+        np.save(self.hparams.pred_save_path+"test.npy", test)
         pd.Series(pred_prob, index=ids, name="binary").to_csv(self.hparams.pred_save_path)
+        
         return {
             "roc_auc": roc_auc,
             "average_precision": avg_prec
         }
 
-    @pl.data_loader
     def train_dataloader(self):
         """This method is called automatically by pytorch-lightning."""
         return DataLoader(self.train_dataset,
                           batch_size=self.hparams.batch_size,
                           num_workers=self.hparams.num_workers,
                           shuffle=True)
-    @pl.data_loader
+    
     def val_dataloader(self):
         """This method is called automatically by pytorch-lightning."""
         return DataLoader(self.val_dataset,
@@ -303,7 +318,6 @@ class Challenger(pl.LightningModule):
                           num_workers=self.hparams.num_workers,
                           shuffle=False)
 
-    @pl.data_loader
     def test_dataloader(self):
         """This method is called automatically by pytorch-lightning."""
         return DataLoader(self.test_dataset,
@@ -316,11 +330,26 @@ class Challenger(pl.LightningModule):
         """Add model-specific hyperparameters to the parent parser."""
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
         
-        parser.add_argument("--batch_size", type=int, default=16, help="The batch size.")
-        parser.add_argument("--lr", type=float, default=3e-4, help="The initial learning rate.")
-        parser.add_argument("--weight_decay", type=float, default=1e-5, help="The amount of weight decay to use.")
-        parser.add_argument("--patch_size", type=int, default=50, help="Size of the image patch extracted around each tumour.")
-        parser.add_argument("--dataset_mean", type=float, default=7.8577905, help="The mean pixel intensity used for input normalization.")
-        parser.add_argument("--dataset_std", type=float, default=257.45108, help="The standard deviation of  pixel intensity used for input normalization.")
+        parser.add_argument("--batch_size", type=int, default=16, 
+                            help="The batch size.")
+        
+        parser.add_argument("--lr", type=float, default=3e-4, 
+                            help="The initial learning rate.")
+        
+        parser.add_argument("--weight_decay", type=float, default=1e-5, 
+                            help="The amount of weight decay to use.")
+        
+        parser.add_argument("--patch_size", type=int, default=50, 
+                            help="Size of the image patch extracted around each tumour.")
+        
+        parser.add_argument("--dataset_mean", type=float, default=7.8577905, 
+                            help="The mean pixel intensity used for input normalization.")
+        
+        parser.add_argument("--dataset_std", type=float, default=257.45108, 
+                            help="The standard deviation of  pixel intensity used for input normalization.")
+        
+        parser.add_argument("--c1", type=float, default=1., 
+                            help="Regularization term for MTLR backprop.")
+        
         
         return parser

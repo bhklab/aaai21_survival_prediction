@@ -1,26 +1,25 @@
 #!/bin/bash
-### Example script for submitting GPU jobs on H4H
 #SBATCH --job-name=ckpt_p2
 #SBATCH --mem=32G
 #SBATCH -t 2-00:00:00
 #SBATCH -c 16
 #SBATCH -N 1
-# add the name of the partition (e.g. -p gpu) and your group's GPU account
-# (e.g. -A mygroup_gpu) below
 #SBATCH --account=radiomics_gpu
 #SBATCH --partition=gpu_radiomics
 #SBATCH --gres=gpu:1
-# replace the path below with the directory with your code
-#SBATCH -D /cluster/home/sejinkim/projects/uhn-radcure-challenge
+#SBATCH -D /cluster/home/sejinkim/projects/aaai21_survival_prediction
+#SBATCH --mail-user=sejin.kim@uhnresearch.ca
+#SBATCH --mail-type=ALL
+#SBATCH --output="/cluster/projects/radiomics/Temp/sejin/slurm_logs/%A-%x.out"
 
 USERNAME="sejinkim"
 source /cluster/home/$USERNAME/.bashrc
 # OPTIONAL: activate the conda environment
-conda activate radcure-challenge
+conda activate aaai-survival
 
 RAW_DATA_PATH=/cluster/projects/radiomics/RADCURE-challenge/data
 
-python -m radcurechallenge.phase2.p2resume\
+python -m challenge_code.p2resume\
           $RAW_DATA_PATH\
           $RAW_DATA_PATH/training/clinical.csv\
           --cache_dir ./data/data_cache\

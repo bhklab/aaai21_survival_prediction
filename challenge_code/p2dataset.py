@@ -9,7 +9,9 @@ from joblib import Parallel, delayed
 
 import torch
 from torch.utils.data import Dataset
+from sklearn.preprocessing import scale
 
+from torchmtlr.utils import make_time_bins, encode_survival
 
 def find_centroid(mask: sitk.Image) -> np.ndarray:
     """Find the centroid of a binary image in image
@@ -18,7 +20,7 @@ def find_centroid(mask: sitk.Image) -> np.ndarray:
     Parameters
     ----------
     mask
-        The bimary mask image.
+        The binary mask image.
 
     Returns
     -------
@@ -82,35 +84,100 @@ class RadcureDataset(Dataset):
         self.transform = transform
         self.num_workers = num_workers
         
-        print (self.train)
-        
         if self.train:
             self.split = "training"
         else:
             self.split = "test"
+            
+        self.clinical_data = self.make_data(clinical_data_path, split=self.split)
+        
+        
+#         try:
+#             self.clinical_data = clinical_data[clinical_data["split"] == self.split]
+#         except:
+#             self.clinical_data = clinical_data
+        
+        if self.train:
+            time_bins     = make_time_bins(self.clinical_data["time"], event=self.clinical_data["event"])
+            # self.y        = encode_survival(clinical_data["time"], clinical_data["event"], time_bins)
+            # print(clinical_data)
+            multi_events  = self.clinical_data.apply(lambda x: self.multiple_events(x), axis=1)
+            self.y        = encode_survival(self.clinical_data["time"], multi_events, time_bins)
 
-        print (self.split)
-            
-        clinical_data = pd.read_csv(clinical_data_path)
-        print (clinical_data)
-        try:
-            self.clinical_data = clinical_data[clinical_data["split"] == self.split]
-        except:
-            self.clinical_data = clinical_data
-            
         self.cache_path = os.path.join(cache_dir, self.split)
 
-        if not self.train and len(self.clinical_data) == 0:
-            warn(("The test set is not available at this stage of the challenge."
-                  " Testing will be disabled"), UserWarning)
+#         if not self.train and len(self.clinical_data) == 0:
+#             warn(("The test set is not available at this stage of the challenge."
+#                   " Testing will be disabled"), UserWarning)
+#         else:
+#             # TODO we should also re-create the cache when the patch size is changed
+        if not os.path.exists(self.cache_path):
+            os.makedirs(self.cache_path)
+        
+        if len(os.listdir(self.cache_path))==0:
+            self._prepare_data()
+            
+    def multiple_events(self, row):
+        event        = row["event"]
+        cancer_death = row["cancer_death"]
+        
+        if event==0:
+            return 0
+        elif cancer_death==0:
+            return 1
+        elif cancer_death==1:
+            return 2
         else:
-            # TODO we should also re-create the cache when the patch size is changed
-            if not os.path.exists(self.cache_path):
-                os.makedirs(self.cache_path)
-                self._prepare_data()
+            raise UhOh
+        
+    def make_data(self, path, split="training"):
+        """Load and preprocess the data."""
+        clinical_data = (pd.read_csv(path)
+                         .query("split == @split")
+                         #.set_index("Study ID")
+                         .drop(["split"], axis=1, errors="ignore"))
+        if split == "training":
+            clinical_data = clinical_data.rename(columns={"death": "event", "survival_time": "time"})
+            # Convert time to months
+            clinical_data["time"] *= 12
+
+        # binarize T stage as T1/2 = 0, T3/4 = 1
+        clinical_data["T Stage"] = clinical_data["T Stage"].map(
+            lambda x: "T1/2" if x in ["T1", "T1a", "T1b", "T2"] else "T3/4")
+
+        # use more fine-grained grouping for N stage
+        clinical_data["N Stage"] = clinical_data["N Stage"].map({
+                                                                "N0":  "N0",
+                                                                "N1":  "N1",
+                                                                "N2":  "N2",
+                                                                "N2a": "N2",
+                                                                "N2b": "N2",
+                                                                "N2c": "N2",
+                                                                "N3":  "N3",
+                                                                "N3a": "N3",
+                                                                "N3b": "N3"})
+        
+        clinical_data["Stage"] = clinical_data["Stage"].map(
+            lambda x: "I/II" if x in ["I", "II", "IIA"] else "III/IV")
+
+        clinical_data["ECOG"] = clinical_data["ECOG"].map(
+            lambda x: ">0" if x > 0 else "0")
+
+        clinical_data = pd.get_dummies(clinical_data,
+                                       columns=["Sex",
+                                                "T Stage",
+                                                "N Stage",
+                                                "Disease Site",
+                                                "Stage",
+                                                "ECOG"],
+                                       drop_first=True)
+        
+        clinical_data = pd.get_dummies(clinical_data, columns=["HPV Combined"])
+        return clinical_data
 
     def _prepare_data(self):
         """Preprocess and cache the dataset."""
+
         Parallel(n_jobs=self.num_workers)(
             delayed(self._preprocess_subject)(subject_id)
             for subject_id in self.clinical_data["Study ID"])
@@ -118,6 +185,9 @@ class RadcureDataset(Dataset):
     def _preprocess_subject(self, subject_id: str):
         """Preprocess and cache a single subject."""
         # load image and GTV mask
+        print(self.root_directory)
+        print(self.split)
+        print(subject_id)
         path = os.path.join(self.root_directory, self.split,
                             "{}", f"{subject_id}.nrrd")
         image = sitk.ReadImage(path.format("images"))
@@ -157,16 +227,22 @@ class RadcureDataset(Dataset):
         tuple of torch.Tensor and int
             The input-target pair.
         """
-        ohe_cols = ["Sex", "T Stage", "N Stage", "Chemotherapy", "HPV Combined", "Disease Site", "ECOG"]
-        clin_var_data = pd.concat ([pd.get_dummies (self.clinical_data[ohe_cols], columns=ohe_cols), self.clinical_data[["Dose", "age at dx"]]], axis=1).fillna(0) #39 features
-        clin_var_data.insert (36, "ECOG_4.0", pd.DataFrame (np.zeros(750)))
-        clin_var = clin_var_data.iloc[idx].to_numpy(dtype="float32")
-        subject_id = self.clinical_data.iloc[idx]["Study ID"]
+        
+        try:      # training data
+            # clin_var_data = self.clinical_data.drop(["target_binary", 'time', 'event', 'Study ID'], axis=1)
+            clin_var_data = self.clinical_data.drop(["target_binary", 'time', 'event', 'cancer_death', 'Study ID'], axis=1)
+        except:   # test data
+            clin_var_data = self.clinical_data.drop(['Study ID'], axis=1)
+        clin_var = clin_var_data.iloc[idx].to_numpy(dtype='float32')
+        
         if self.train:
-            target = torch.tensor (self.clinical_data.iloc[idx][self.target_col])
+            target = self.y[idx]
         else:
-            target = 0
+            target = torch.tensor(np.zeros(29))
+        
+        subject_id = self.clinical_data.iloc[idx]["Study ID"]
         path = os.path.join(self.cache_path, f"{subject_id}.nrrd")
+#         print('hi:', path)
         image = sitk.ReadImage(path)
 
         if self.transform is not None:

@@ -212,7 +212,7 @@ class Challenger(pl.LightningModule):
 
         This method is called automatically by pytorch-lightning.
         """
-        x, y = batch
+        x, y, labels = batch
         output = self.forward(x).squeeze(1)
         # print (type(output))
         # loss = F.binary_cross_entropy_with_logits(output, y.float(), pos_weight=self.pos_weight)
@@ -226,14 +226,14 @@ class Challenger(pl.LightningModule):
 
         This method is called automatically by pytorch-lightning.
         """
-        x, y = batch
+        x, y, labels = batch
         output = self.forward(x).squeeze(1)
         # print (type(output))
         # loss = F.binary_cross_entropy_with_logits(output, y.float(), pos_weight=self.pos_weight)
         loss = mtlr_neg_log_likelihood(output, y.float(), self.model, self.hparams.c1, average=True)
-        pred_prob = torch.sigmoid(output)
+        # pred_prob = torch.sigmoid(output)
         
-        return {"loss": loss, "pred_prob": pred_prob, "y": y}
+        return {"loss": loss, "pred_prob": output, "y": y, "labels": labels}
 
     def validation_epoch_end(self, outputs):
         """Compute performance metrics on the validation dataset.
@@ -241,16 +241,32 @@ class Challenger(pl.LightningModule):
         This method is called automatically by pytorch-lightning.
         """
         loss        = torch.stack([x["loss"] for x in outputs]).mean()
-        pred_prob   = torch.cat([x["pred_prob"] for x in outputs]).detach().cpu().numpy()          
-        y           = torch.cat([x["y"] for x in outputs]).detach().cpu().numpy()
+        pred_prob   = torch.cat([x["pred_prob"] for x in outputs]).cpu()          
+        y           = torch.cat([x["y"] for x in outputs]).cpu()
         
-        pred_event  = pred_prob[:,:pred_prob.shape[-1]//2]
-        y_event     = y[:,:y.shape[-1]//2]
-        # pred_risk = mtlr_risk(pred_prob, 2).cpu().numpy()
-        # print(pred_risk)
-        # ci_1 = concordance_index(data_test["time"], -pred_risk[:, 0], event_observed=data_test["event"] == 1)
-        # ci_2 = concordance_index(data_test["time"], -pred_risk[:, 1], event_observed=data_test["event"] == 2)
-        # print(roc_auc_score(y_event, pred_event))
+        true_binary = torch.cat([x["labels"]["target_binary"] for x in outputs]).cpu()
+        true_time   = torch.cat([x["labels"]["time"] for x in outputs]).cpu()
+        true_event  = torch.cat([x["labels"]["event"] for x in outputs]).cpu()
+        true_cancer = torch.cat([x["labels"]["cancer_death"] for x in outputs]).cpu()
+                
+        two_year_bin    = np.digitize(2, self.train_dataset.dataset.time_bins)
+        survival_event  = mtlr_survival(pred_prob[:,:29])
+        survival_cancer = mtlr_survival(pred_prob[:,29:])
+        pred_event      = 1 - survival_event[:, two_year_bin]
+        pred_cancer     = 1 - survival_cancer[:, two_year_bin]
+        
+        roc_auc_event   = roc_auc_score(true_event, pred_event)
+        roc_auc_cancer  = roc_auc_score(true_cancer, pred_cancer)
+        avg_prec_event  = average_precision_score(true_event, pred_event)
+        avg_prec_cancer = average_precision_score(true_cancer, pred_cancer)
+        #print(roc_auc_event, roc_auc_cancer, avg_prec_event, avg_prec_cancer)
+        
+        pred_risk = mtlr_risk(pred_prob, 2).numpy()
+        #print(pred_risk)
+        
+        ci_event  = concordance_index(true_time, -pred_risk[:, 0], event_observed=true_cancer)
+        ci_cancer = concordance_index(true_time, -pred_risk[:, 1], event_observed=true_cancer)
+        
         try:
             roc_auc_total = roc_auc_score(y, pred_prob, average='samples')
         except ValueError as e:
@@ -261,10 +277,12 @@ class Challenger(pl.LightningModule):
 
         # log loss and metrics to Tensorboard
         log = {"val/loss": loss,
-               "val/roc_auc": roc_auc_total,
-               # "val/roc_auc_cancer": roc_auc_cancer,
-               "val/precision": avg_prec_total,
-               # "val/precision_cancer": avg_prec_cancer,
+               "val/roc_auc": roc_auc_event,
+               "val/roc_auc_cancer": roc_auc_cancer,
+               "val/precision": avg_prec_event,
+               "val/precision_cancer": avg_prec_cancer,
+               "val/ci": ci_event,
+               "val/ci_cancer": ci_cancer,
                # "val/mse_time": mse_time
                }
         

@@ -10,7 +10,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from .p2model import Challenger
 from .utils import set_seed
 
-set_seed(420, deterministic=False)
+set_seed(1129)
 np.seterr(divide='ignore', invalid='ignore')
 
 def main(hparams):
@@ -24,7 +24,7 @@ def main(hparams):
     else:
         version = str(hparams.design +"_" + slurm_id)
     logger = TensorBoardLogger(hparams.logdir,
-                               name=hparams.exp_name,
+                               name=hparams.exp_name, #+"_{hparams.c1}"
                                version=version)
     checkpoint_path = os.path.join(logger.experiment.get_logdir(),
                                    "checkpoints",

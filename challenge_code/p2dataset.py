@@ -98,11 +98,11 @@ class RadcureDataset(Dataset):
 #             self.clinical_data = clinical_data
         
         if self.train:
-            time_bins     = make_time_bins(self.clinical_data["time"], event=self.clinical_data["event"])
+            self.time_bins = make_time_bins(self.clinical_data["time"], event=self.clinical_data["event"])
             # self.y        = encode_survival(clinical_data["time"], clinical_data["event"], time_bins)
             # print(clinical_data)
-            multi_events  = self.clinical_data.apply(lambda x: self.multiple_events(x), axis=1)
-            self.y        = encode_survival(self.clinical_data["time"], multi_events, time_bins)
+            multi_events   = self.clinical_data.apply(lambda x: self.multiple_events(x), axis=1)
+            self.y         = encode_survival(self.clinical_data["time"], multi_events, self.time_bins)
 
         self.cache_path = os.path.join(cache_dir, self.split)
 
@@ -240,6 +240,8 @@ class RadcureDataset(Dataset):
         else:
             target = torch.tensor(np.zeros(29))
         
+        labels = self.clinical_data.iloc[idx].to_dict()
+        
         subject_id = self.clinical_data.iloc[idx]["Study ID"]
         path = os.path.join(self.cache_path, f"{subject_id}.nrrd")
 #         print('hi:', path)
@@ -247,8 +249,8 @@ class RadcureDataset(Dataset):
 
         if self.transform is not None:
             image = self.transform(image)
-
-        return (image, clin_var), target
+    
+        return (image, clin_var), target, labels
 
     def __len__(self) -> int:
         """Return the length of the dataset."""

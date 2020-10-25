@@ -1,9 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=aaai_train
-#SBATCH --mem=16G
+#SBATCH --job-name=aaai_debug
+#SBATCH --mem=32G
 #SBATCH -t 2-00:00:00
-#SBATCH -c 4
+#SBATCH -c 16
 #SBATCH -N 1
+##SBATCH --partition=himem
 #SBATCH --account=radiomics_gpu
 #SBATCH --partition=gpu_radiomics
 #SBATCH --gres=gpu:1
@@ -26,9 +27,9 @@ python -m challenge_code.p2train\
           --num_workers 0\
           --batch_size 8\
           --lr 1e-4\
-          --c1 1\
+          --c1 10\
           --weight_decay 1e-4\
-          --max_epochs 250\
+          --max_epochs 2\
           --gpus 1\
           --exp_name aaai\
           --design dual_mtlr\

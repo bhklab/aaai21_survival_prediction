@@ -31,7 +31,7 @@ n_clin_vars = 20
 
 def flatten_layers(arr):
     return [i for sub in arr for i in sub]
-
+    
 class Dual_MTLR (nn.Module):
     def __init__(self, 
                  dense_factor: int = 1, 

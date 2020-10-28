@@ -76,7 +76,7 @@ class RadcureDataset(Dataset):
         num_workers
             Number of parallel processes to use for data preprocessing.
         """
-        print (clinical_data_path)
+        # print (clinical_data_path)
         self.root_directory = root_directory
         self.patch_size = patch_size
         self.target_col = target_col
@@ -238,7 +238,7 @@ class RadcureDataset(Dataset):
         if self.train:
             target = self.y[idx]
         else:
-            target = torch.tensor(np.zeros(29))
+            target = torch.tensor(np.zeros(58))
         
         labels = self.clinical_data.iloc[idx].to_dict()
         

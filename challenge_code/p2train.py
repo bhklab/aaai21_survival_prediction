@@ -10,7 +10,10 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from .p2model import Challenger
 from .utils import set_seed
 
-set_seed(1129)
+print("start")
+seed = np.random.randint(1, high=10000, size=1)[0]
+print(seed)
+set_seed(seed)
 np.seterr(divide='ignore', invalid='ignore')
 
 def main(hparams):
@@ -33,11 +36,13 @@ def main(hparams):
                                           save_top_k=5,
                                           monitor="val/roc_auc",
                                           mode="max")
+    
     model = Challenger(hparams)
     print (model)
     trainer = Trainer.from_argparse_args(hparams, 
                                          checkpoint_callback=checkpoint_callback,
                                          logger=logger)
+    
     # trainer.logger = logger
     # trainer.checkpoint_callback = checkpoint_callback
     trainer.fit(model)
@@ -54,7 +59,7 @@ if __name__ == "__main__":
     parser.add_argument("clinical_data_path", type=str,
                         help="Path to CSV file containing the clinical data.")
     
-    parser.add_argument("--logdir", type=str, default="./data/logs",
+    parser.add_argument("--logdir", type=str, default="/cluster/projects/radiomics/Temp/sejin/aaai21_survival_prediction/data/logs",
                         help="Directory where training logs will be saved.")
     
     parser.add_argument("--cache_dir", type=str, default="./data/data_cache",

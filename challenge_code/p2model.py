@@ -22,6 +22,7 @@ from .transforms import *
 from .nets.dual import *
 
 from torchmtlr import mtlr_neg_log_likelihood, mtlr_survival, mtlr_risk
+from datetime import datetime as dt
 
 
 class Challenger(pl.LightningModule):
@@ -58,8 +59,8 @@ class Challenger(pl.LightningModule):
         self.hparams = hparams
         # Default, Default_Air, Default_GN, Default_3X, Default_XL, Default_Pro, Default_Pad, Default_Pro_Max
         self.model = Dual_MTLR(dense_factor=1, 
-                               n_img_dense=2,    # default==1
-                               n_concat_dense=0, # default==0
+                               n_img_dense=1,    # default==1
+                               n_concat_dense=1, # default==0
                                num_events=2)     # added `cancer_death` in p2dataset.py line #101:102
         
         self.apply (self.init_params)
@@ -135,7 +136,7 @@ class Challenger(pl.LightningModule):
             ToTensor(),
             #lambda x: torch.randn(1, 50, 50, 50)
         ])
-        print(self.hparams)
+        # print(self.hparams)
         full_dataset = RadcureDataset(self.hparams.root_directory,
                                       self.hparams.clinical_data_path,
                                       self.hparams.patch_size,
@@ -144,12 +145,12 @@ class Challenger(pl.LightningModule):
                                       transform=train_transform,
                                       cache_dir=self.hparams.cache_dir,
                                       num_workers=self.hparams.num_workers)
-#         test_dataset = RadcureDataset("/cluster/projects/radiomics/RADCURE-challenge/data",
-#                                       "/cluster/projects/radiomics/RADCURE-challenge/data/test/clinical.csv",
-        test_dataset = RadcureDataset(self.hparams.root_directory,
-                                      self.hparams.clinical_data_path,
+        test_dataset = RadcureDataset("/cluster/projects/radiomics/RADCURE-challenge/data",
+                                      "/cluster/projects/radiomics/RADCURE-challenge/data/test/clinical.csv",
+#         test_dataset = RadcureDataset(self.hparams.root_directory,
+#                                       self.hparams.clinical_data_path,
                                       self.hparams.patch_size,
-                                      train=True,#set back to False at test phase
+                                      train=False,#set back to False at test phase
                                       transform=test_transform,
                                       cache_dir=self.hparams.cache_dir,
                                       num_workers=self.hparams.num_workers)
@@ -231,7 +232,7 @@ class Challenger(pl.LightningModule):
         # print (type(output))
         # loss = F.binary_cross_entropy_with_logits(output, y.float(), pos_weight=self.pos_weight)
         loss = mtlr_neg_log_likelihood(output, y.float(), self.model, self.hparams.c1, average=True)
-        # pred_prob = torch.sigmoid(output)
+        # output = torch.sigmoid(output)
         
         return {"loss": loss, "pred_prob": output, "y": y, "labels": labels}
 
@@ -262,7 +263,6 @@ class Challenger(pl.LightningModule):
         #print(roc_auc_event, roc_auc_cancer, avg_prec_event, avg_prec_cancer)
         
         pred_risk = mtlr_risk(pred_prob, 2).numpy()
-        #print(pred_risk)
         
         ci_event  = concordance_index(true_time, -pred_risk[:, 0], event_observed=true_cancer)
         ci_cancer = concordance_index(true_time, -pred_risk[:, 1], event_observed=true_cancer)
@@ -301,26 +301,68 @@ class Challenger(pl.LightningModule):
 
         This method is called automatically by pytorch-lightning.
         """
-        pred_prob = torch.cat([x["pred_prob"] for x in outputs]).detach().cpu().numpy()
-        y = torch.cat([x["y"] for x in outputs]).detach().cpu().numpy()
+        loss        = torch.stack([x["loss"] for x in outputs]).mean()
+        pred_prob   = torch.cat([x["pred_prob"] for x in outputs]).cpu()          
+        y           = torch.cat([x["y"] for x in outputs]).cpu()        
+#         true_binary = torch.cat([x["labels"]["target_binary"] for x in outputs]).cpu()
+#         true_time   = torch.cat([x["labels"]["time"] for x in outputs]).cpu()
+#         true_event  = torch.cat([x["labels"]["event"] for x in outputs]).cpu()
+#         true_cancer = torch.cat([x["labels"]["cancer_death"] for x in outputs]).cpu()
+                
+        two_year_bin    = np.digitize(2, self.train_dataset.dataset.time_bins)
+        survival_event  = mtlr_survival(pred_prob[:,:29])
+        survival_cancer = mtlr_survival(pred_prob[:,29:])
+        pred_event      = 1 - survival_event[:, two_year_bin]
+        pred_cancer     = 1 - survival_cancer[:, two_year_bin]
         
-        try:
-            roc_auc = roc_auc_score(y, pred_prob)
-        except ValueError:
-            roc_auc = float("nan")
-            
-        avg_prec = average_precision_score(y, pred_prob)
+#         roc_auc_event   = roc_auc_score(true_event, pred_event)
+#         roc_auc_cancer  = roc_auc_score(true_cancer, pred_cancer)
+#         avg_prec_event  = average_precision_score(true_event, pred_event)
+#         avg_prec_cancer = average_precision_score(true_cancer, pred_cancer)
+#         #print(roc_auc_event, roc_auc_cancer, avg_prec_event, avg_prec_cancer)
+        
+        pred_risk = mtlr_risk(pred_prob, 2).numpy()
+#         #print(pred_risk)
+        
+#         ci_event  = concordance_index(true_time, -pred_risk[:, 0], event_observed=true_cancer)
+#         ci_cancer = concordance_index(true_time, -pred_risk[:, 1], event_observed=true_cancer)
+        
+#         try:
+#             roc_auc_total = roc_auc_score(y, pred_prob, average='samples')
+#         except ValueError as e:
+#             roc_auc_total = float("nan")
+        
+#         avg_prec_total = average_precision_score(y, pred_prob, average='samples')
+        
+        # hard-coded paths because hparams isn't passing flags properly :(
+        save_path   = "/cluster/home/sejinkim/projects/aaai21_survival_prediction/data/predictions/"
+        time_now    = dt.now().strftime("%y%m%d_%H%M%S")
+        print('\n'+time_now+'\n')
+        event_path  = os.path.join(save_path, time_now+"_event_pred.csv")
+        cancer_path = os.path.join(save_path, time_now+"_cancer_pred.csv")
+        risk_path   = os.path.join(save_path, time_now+"_risk_pred.npy")
+        
         ids = self.test_dataset.clinical_data["Study ID"]
-        np.save(self.hparams.pred_save_path, pred_prob)
-        np.save(self.hparams.pred_save_path+"idx.npy", np.array(ids))
-        test = np.append(np.copy(pred_prob), np.array(ids), axis=1)
-        np.save(self.hparams.pred_save_path+"test.npy", test)
-        pd.Series(pred_prob, index=ids, name="binary").to_csv(self.hparams.pred_save_path)
+        pd.Series(pred_event, index=ids, name="event").to_csv(event_path)
+        pd.Series(pred_cancer, index=ids, name="event").to_csv(cancer_path)
+        np.save(risk_path, pred_risk)
         
-        return {
-            "roc_auc": roc_auc,
-            "average_precision": avg_prec
-        }
+        # SAVE RESULTS
+#         results = pd.read_csv("/cluster/home/sejinkim/projects/aaai21_survival_prediction/data/predictions/test_results.csv", index_col=0)
+#         results.loc[time_now] = [loss, roc_auc_event, roc_auc_cancer, avg_prec_event, avg_prec_cancer, ci_event, ci_cancer]
+        
+#         results.to_csv("/cluster/home/sejinkim/projects/aaai21_survival_prediction/data/predictions/test_results.csv")
+        
+#         log = {"val/loss": loss,
+#                "val/roc_auc": roc_auc_event,
+#                "val/roc_auc_cancer": roc_auc_cancer,
+#                "val/precision": avg_prec_event,
+#                "val/precision_cancer": avg_prec_cancer,
+#                "val/ci": ci_event,
+#                "val/ci_cancer": ci_cancer,
+#                }
+#         self.log(log)
+        return
 
     def train_dataloader(self):
         """This method is called automatically by pytorch-lightning."""

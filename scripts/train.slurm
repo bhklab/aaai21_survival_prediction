@@ -26,9 +26,9 @@ python -m challenge_code.p2train\
           --num_workers 0\
           --batch_size 8\
           --lr 1e-4\
-          --c1 1\
+          --c1 10\
           --weight_decay 1e-4\
-          --max_epochs 250\
+          --max_epochs 500\
           --gpus 1\
           --exp_name aaai\
           --design dual_mtlr\

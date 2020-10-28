@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=aaai_predict
-#SBATCH --mem=32G
-#SBATCH -t 2:00:00
-#SBATCH -c 16
+#SBATCH --mem=16G
+#SBATCH -t 10:00:00
+#SBATCH -c 6
 #SBATCH -N 1
 #SBATCH -p gpu_radiomics
 #SBATCH -A radiomics_gpu
@@ -22,5 +22,4 @@ RAW_DATA_PATH=/cluster/projects/radiomics/RADCURE-challenge/data
 python -m challenge_code.p2predict\
           $RAW_DATA_PATH\
           $RAW_DATA_PATH/test/clinical.csv\
-          /cluster/home/sejinkim/projects/aaai21_survival_prediction/data/logs/aaai/dual_mtlr_1533071/checkpoints/epoch=249.ckpt\
-          --num_workers 16\
+          --num_workers 6\

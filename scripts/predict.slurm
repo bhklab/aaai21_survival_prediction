@@ -23,3 +23,4 @@ python -m challenge_code.p2predict\
           $RAW_DATA_PATH\
           $RAW_DATA_PATH/test/clinical.csv\
           --num_workers 6\
+          --gpus 1\

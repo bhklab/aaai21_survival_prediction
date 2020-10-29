@@ -35,11 +35,13 @@ def best_ckpt (arr):
     return arr[best_idx]
 
 def main(args):
-    models = sorted(glob.glob("/cluster/projects/radiomics/Temp/sejin/aaai21_survival_prediction/data/logs/aaai/dual_mtlr_1550*"))
+    models = sorted(glob.glob("/cluster/projects/radiomics/Temp/sejin/aaai21_survival_prediction/data/logs/aaai/dual_mtlr_155*"))
+
     best_checkpoints = []
     for model in models:
         ckpts = glob.glob(model+"/checkpoints/*")       
-        best_checkpoints.append(best_ckpt(ckpts))
+        if len(ckpts) > 0:
+            best_checkpoints.append(best_ckpt(ckpts))
         
     print(best_checkpoints)
     

@@ -58,10 +58,10 @@ class Challenger(pl.LightningModule):
 
         self.hparams = hparams
         # Default, Default_Air, Default_GN, Default_3X, Default_XL, Default_Pro, Default_Pad, Default_Pro_Max
-        self.model = Dual_MTLR(dense_factor=1, 
-                               n_img_dense=1,    # default==1
-                               n_concat_dense=1, # default==0
-                               num_events=2)     # added `cancer_death` in p2dataset.py line #101:102
+        self.model = Dual_MTLR(dense_factor=1, #Image_MTLR(dense_factor=1,
+                                n_img_dense=1,    # default==1
+                                n_concat_dense=0, # default==0
+                                num_events=2)     # added `cancer_death` in p2dataset.py line #101:102
         
         self.apply (self.init_params)
 
@@ -146,7 +146,7 @@ class Challenger(pl.LightningModule):
                                       cache_dir=self.hparams.cache_dir,
                                       num_workers=self.hparams.num_workers)
         test_dataset = RadcureDataset("/cluster/projects/radiomics/RADCURE-challenge/data",
-                                      "/cluster/projects/radiomics/RADCURE-challenge/data/test/clinical.csv",
+                                      "/cluster/projects/radiomics/RADCURE-challenge/clinical_cancer_death.csv",
 #         test_dataset = RadcureDataset(self.hparams.root_directory,
 #                                       self.hparams.clinical_data_path,
                                       self.hparams.patch_size,
@@ -264,7 +264,7 @@ class Challenger(pl.LightningModule):
         
         pred_risk = mtlr_risk(pred_prob, 2).numpy()
         
-        ci_event  = concordance_index(true_time, -pred_risk[:, 0], event_observed=true_cancer)
+        ci_event  = concordance_index(true_time, -pred_risk[:, 0], event_observed=true_event)
         ci_cancer = concordance_index(true_time, -pred_risk[:, 1], event_observed=true_cancer)
         
         try:
@@ -301,13 +301,13 @@ class Challenger(pl.LightningModule):
 
         This method is called automatically by pytorch-lightning.
         """
-        loss        = torch.stack([x["loss"] for x in outputs]).mean()
+        loss        = float(torch.stack([x["loss"] for x in outputs]).mean())
         pred_prob   = torch.cat([x["pred_prob"] for x in outputs]).cpu()          
         y           = torch.cat([x["y"] for x in outputs]).cpu()        
-#         true_binary = torch.cat([x["labels"]["target_binary"] for x in outputs]).cpu()
-#         true_time   = torch.cat([x["labels"]["time"] for x in outputs]).cpu()
-#         true_event  = torch.cat([x["labels"]["event"] for x in outputs]).cpu()
-#         true_cancer = torch.cat([x["labels"]["cancer_death"] for x in outputs]).cpu()
+        true_binary = torch.cat([x["labels"]["target_binary"] for x in outputs]).cpu()
+        true_time   = torch.cat([x["labels"]["time"] for x in outputs]).cpu()
+        true_event  = torch.cat([x["labels"]["event"] for x in outputs]).cpu()
+        true_cancer = torch.cat([x["labels"]["cancer_death"] for x in outputs]).cpu()
                 
         two_year_bin    = np.digitize(2, self.train_dataset.dataset.time_bins)
         survival_event  = mtlr_survival(pred_prob[:,:29])
@@ -315,17 +315,17 @@ class Challenger(pl.LightningModule):
         pred_event      = 1 - survival_event[:, two_year_bin]
         pred_cancer     = 1 - survival_cancer[:, two_year_bin]
         
-#         roc_auc_event   = roc_auc_score(true_event, pred_event)
-#         roc_auc_cancer  = roc_auc_score(true_cancer, pred_cancer)
-#         avg_prec_event  = average_precision_score(true_event, pred_event)
-#         avg_prec_cancer = average_precision_score(true_cancer, pred_cancer)
+        roc_auc_event   = roc_auc_score(true_event, pred_event)
+        roc_auc_cancer  = roc_auc_score(true_cancer, pred_cancer)
+        avg_prec_event  = average_precision_score(true_event, pred_event)
+        avg_prec_cancer = average_precision_score(true_cancer, pred_cancer)
 #         #print(roc_auc_event, roc_auc_cancer, avg_prec_event, avg_prec_cancer)
         
         pred_risk = mtlr_risk(pred_prob, 2).numpy()
 #         #print(pred_risk)
         
-#         ci_event  = concordance_index(true_time, -pred_risk[:, 0], event_observed=true_cancer)
-#         ci_cancer = concordance_index(true_time, -pred_risk[:, 1], event_observed=true_cancer)
+        ci_event  = concordance_index(true_time, -pred_risk[:, 0], event_observed=true_event)
+        ci_cancer = concordance_index(true_time, -pred_risk[:, 1], event_observed=true_cancer)
         
 #         try:
 #             roc_auc_total = roc_auc_score(y, pred_prob, average='samples')
@@ -353,15 +353,15 @@ class Challenger(pl.LightningModule):
         
 #         results.to_csv("/cluster/home/sejinkim/projects/aaai21_survival_prediction/data/predictions/test_results.csv")
         
-#         log = {"val/loss": loss,
-#                "val/roc_auc": roc_auc_event,
-#                "val/roc_auc_cancer": roc_auc_cancer,
-#                "val/precision": avg_prec_event,
-#                "val/precision_cancer": avg_prec_cancer,
-#                "val/ci": ci_event,
-#                "val/ci_cancer": ci_cancer,
-#                }
-#         self.log(log)
+        log = {"val/loss": loss,
+               "val/roc_auc": roc_auc_event,
+               "val/roc_auc_cancer": roc_auc_cancer,
+               "val/precision": avg_prec_event,
+               "val/precision_cancer": avg_prec_cancer,
+               "val/ci": ci_event,
+               "val/ci_cancer": ci_cancer,
+               }
+        self.log_dict(log)
         return
 
     def train_dataloader(self):

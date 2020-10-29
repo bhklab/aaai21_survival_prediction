@@ -31,7 +31,62 @@ n_clin_vars = 20
 
 def flatten_layers(arr):
     return [i for sub in arr for i in sub]
+
+class Image_MTLR (nn.Module):
+    def __init__(self, 
+                 dense_factor: int = 1, 
+                 n_img_dense: int = 1, 
+                 n_concat_dense: int = 0, 
+                 num_events: int = 1):
+        """
+        Parameters
+        ----------
+        dense_factor
+            factor multiplying width of dense layer
+        n_img_dense
+            number of dense layers
+        n_concat_dense
+            number of dense layers after concat clinical variables to make N-MTLR as per [1]
+            
+        References
+        ----------
+        .. [1] https://arxiv.org/abs/1801.05512v1
+        """
+       
+        super(Dual_MTLR, self).__init__()
+        
+        img_dense_layers      = [[nn.Linear(512, 512 * dense_factor), nn.ReLU(inplace=True)]]
+        img_dense_layers.extend([[nn.Linear(512 * dense_factor, 512 * dense_factor), nn.ReLU(inplace=True)] 
+                                  for _ in range(n_img_dense - 1)])
+        img_dense_layers = flatten_layers(img_dense_layers)
+        
+        self.radiomics = nn.Sequential (# block 1
+                                        conv_3d_block (1, 64, kernel_size=5),
+                                        conv_3d_block (64, 128, kernel_size=3),
+                                        nn.MaxPool3d(kernel_size=2, stride=2),
+
+                                        # block 2
+                                        conv_3d_block (128, 256, kernel_size=3),
+                                        conv_3d_block (256, 512, kernel_size=3),
+                                        nn.MaxPool3d(kernel_size=2, stride=2),
+
+                                        # global pool
+                                        nn.AdaptiveAvgPool3d(1),
     
+                                        # linear layers
+                                        nn.Flatten(),
+                                        *img_dense_layers,)
+        
+
+        self.mtlr = MTLR(512 * dense_factor, 29, num_events=num_events)
+
+    def forward (self, x):
+        img, clin_var = x
+        cnn = self.radiomics (img)
+        # latent_concat = torch.cat ((cnn, clin_var), dim=1)
+        # print(img.shape, clin_var.shape, latent_concat.shape)        
+        return self.mtlr(cnn)
+
 class Dual_MTLR (nn.Module):
     def __init__(self, 
                  dense_factor: int = 1, 

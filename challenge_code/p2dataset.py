@@ -86,10 +86,16 @@ class RadcureDataset(Dataset):
         
         if self.train:
             self.split = "training"
+            self.clinical_data = self.make_data(clinical_data_path, split=self.split)
         else:
             self.split = "test"
-            
-        self.clinical_data = self.make_data(clinical_data_path, split=self.split)
+            df1 = pd.read_csv("/cluster/projects/radiomics/RADCURE-challenge/clinical_cancer_death.csv")
+            df2 = pd.read_csv("/cluster/projects/radiomics/RADCURE-challenge/data/clinical_test.csv")
+            self.clinical_data = self.make_data(pd.merge(df1, df2[["Study ID", "ECOG"]], how='inner', on='Study ID'), split=self.split).drop("EGFRI", axis=1)
+        print(self.clinical_data.iloc[0])
+        raise YarghError
+        
+        # self.clinical_data = self.make_data(clinical_data_path, split=self.split)
         
         
 #         try:
@@ -97,12 +103,12 @@ class RadcureDataset(Dataset):
 #         except:
 #             self.clinical_data = clinical_data
         
-        if self.train:
-            self.time_bins = make_time_bins(self.clinical_data["time"], event=self.clinical_data["event"])
-            # self.y        = encode_survival(clinical_data["time"], clinical_data["event"], time_bins)
-            # print(clinical_data)
-            multi_events   = self.clinical_data.apply(lambda x: self.multiple_events(x), axis=1)
-            self.y         = encode_survival(self.clinical_data["time"], multi_events, self.time_bins)
+        #if self.train:
+        self.time_bins = make_time_bins(self.clinical_data["time"], event=self.clinical_data["event"])
+        # self.y        = encode_survival(clinical_data["time"], clinical_data["event"], time_bins)
+        # print(clinical_data)
+        multi_events   = self.clinical_data.apply(lambda x: self.multiple_events(x), axis=1)
+        self.y         = encode_survival(self.clinical_data["time"], multi_events, self.time_bins)
 
         self.cache_path = os.path.join(cache_dir, self.split)
 
@@ -132,14 +138,19 @@ class RadcureDataset(Dataset):
         
     def make_data(self, path, split="training"):
         """Load and preprocess the data."""
-        clinical_data = (pd.read_csv(path)
+        try:
+            df = pd.read_csv(path)
+        except:
+            df = path
+            
+        clinical_data = (df
                          .query("split == @split")
                          #.set_index("Study ID")
                          .drop(["split"], axis=1, errors="ignore"))
-        if split == "training":
-            clinical_data = clinical_data.rename(columns={"death": "event", "survival_time": "time"})
-            # Convert time to months
-            clinical_data["time"] *= 12
+#         if split == "training":
+        clinical_data = clinical_data.rename(columns={"death": "event", "survival_time": "time"})
+        # Convert time to months
+        clinical_data["time"] *= 12
 
         # binarize T stage as T1/2 = 0, T3/4 = 1
         clinical_data["T Stage"] = clinical_data["T Stage"].map(

@@ -89,27 +89,22 @@ class RadcureDataset(Dataset):
             self.clinical_data = self.make_data(clinical_data_path, split=self.split)
         else:
             self.split = "test"
-            df1 = pd.read_csv("/cluster/projects/radiomics/RADCURE-challenge/clinical_cancer_death.csv")
-            df2 = pd.read_csv("/cluster/projects/radiomics/RADCURE-challenge/data/clinical_test.csv")
-            self.clinical_data = self.make_data(pd.merge(df1, df2[["Study ID", "ECOG"]], how='inner', on='Study ID'), split=self.split).drop("EGFRI", axis=1)
-        print(self.clinical_data.iloc[0])
-        raise YarghError
         
-        # self.clinical_data = self.make_data(clinical_data_path, split=self.split)
+        df1 = pd.read_csv("/cluster/projects/radiomics/RADCURE-challenge/clinical_cancer_death.csv")
+        df2 = pd.read_csv("/cluster/projects/radiomics/RADCURE-challenge/data/clinical_test.csv")
+        df3 = pd.read_csv("/cluster/projects/radiomics/RADCURE-challenge/data/clinical.csv")
+        df = pd.merge(df1, pd.concat([df2[["Study ID", "ECOG"]], df3[["Study ID", "ECOG"]]]), 
+                      how='outer', on='Study ID').drop("EGFRI", axis=1)
         
-        
-#         try:
-#             self.clinical_data = clinical_data[clinical_data["split"] == self.split]
-#         except:
-#             self.clinical_data = clinical_data
+        self.clinical_data = self.make_data(df, split=self.split)
         
         #if self.train:
         self.time_bins = make_time_bins(self.clinical_data["time"], event=self.clinical_data["event"])
-        # self.y        = encode_survival(clinical_data["time"], clinical_data["event"], time_bins)
-        # print(clinical_data)
+
         multi_events   = self.clinical_data.apply(lambda x: self.multiple_events(x), axis=1)
         self.y         = encode_survival(self.clinical_data["time"], multi_events, self.time_bins)
-
+        # self.y        = encode_survival(clinical_data["time"], clinical_data["event"], time_bins) # just `event`
+        
         self.cache_path = os.path.join(cache_dir, self.split)
 
 #         if not self.train and len(self.clinical_data) == 0:
@@ -145,13 +140,16 @@ class RadcureDataset(Dataset):
             
         clinical_data = (df
                          .query("split == @split")
-                         #.set_index("Study ID")
+                         # .set_index("Study ID")
                          .drop(["split"], axis=1, errors="ignore"))
-#         if split == "training":
+        # if split == "training":
         clinical_data = clinical_data.rename(columns={"death": "event", "survival_time": "time"})
         # Convert time to months
         clinical_data["time"] *= 12
-
+        
+        clinical_data["age at dx"] = scale(clinical_data["age at dx"])
+        clinical_data["Dose"] = scale(clinical_data["Dose"])
+        
         # binarize T stage as T1/2 = 0, T3/4 = 1
         clinical_data["T Stage"] = clinical_data["T Stage"].map(
             lambda x: "T1/2" if x in ["T1", "T1a", "T1b", "T2"] else "T3/4")

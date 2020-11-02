@@ -35,8 +35,8 @@ def flatten_layers(arr):
 class Image_MTLR (nn.Module):
     def __init__(self, 
                  dense_factor: int = 1, 
-                 n_img_dense: int = 1, 
-                 n_concat_dense: int = 0, 
+                 n_dense: int = 1, 
+                 dropout: float = 0.333,
                  num_events: int = 1):
         """
         Parameters
@@ -53,11 +53,16 @@ class Image_MTLR (nn.Module):
         .. [1] https://arxiv.org/abs/1801.05512v1
         """
        
-        super(Dual_MTLR, self).__init__()
+        super(Image_MTLR, self).__init__()
         
-        img_dense_layers      = [[nn.Linear(512, 512 * dense_factor), nn.ReLU(inplace=True)]]
-        img_dense_layers.extend([[nn.Linear(512 * dense_factor, 512 * dense_factor), nn.ReLU(inplace=True)] 
-                                  for _ in range(n_img_dense - 1)])
+        img_dense_layers      = [[nn.Linear(512, 512 * dense_factor),
+                                  nn.ReLU(inplace=True), 
+                                  nn.Dropout(dropout)]]
+        
+        img_dense_layers.extend([[nn.Linear(512 * dense_factor, 512 * dense_factor), 
+                                  nn.ReLU(inplace=True), 
+                                  nn.Dropout(dropout)] for _ in range(n_dense - 1)])
+        
         img_dense_layers = flatten_layers(img_dense_layers)
         
         self.radiomics = nn.Sequential (# block 1
@@ -82,25 +87,21 @@ class Image_MTLR (nn.Module):
 
     def forward (self, x):
         img, clin_var = x
-        cnn = self.radiomics (img)
-        # latent_concat = torch.cat ((cnn, clin_var), dim=1)
-        # print(img.shape, clin_var.shape, latent_concat.shape)        
+        cnn = self.radiomics (img)     
         return self.mtlr(cnn)
 
 class Dual_MTLR (nn.Module):
     def __init__(self, 
                  dense_factor: int = 1, 
-                 n_img_dense: int = 1, 
-                 n_concat_dense: int = 0, 
+                 n_dense: int = 1, 
+                 dropout: float = 0.333,
                  num_events: int = 1):
         """
         Parameters
         ----------
         dense_factor
             factor multiplying width of dense layer
-        n_img_dense
-            number of dense layers
-        n_concat_dense
+        n_dense
             number of dense layers after concat clinical variables to make N-MTLR as per [1]
             
         References
@@ -109,11 +110,6 @@ class Dual_MTLR (nn.Module):
         """
        
         super(Dual_MTLR, self).__init__()
-        
-        img_dense_layers      = [[nn.Linear(512, 512 * dense_factor), nn.ReLU(inplace=True)]]
-        img_dense_layers.extend([[nn.Linear(512 * dense_factor, 512 * dense_factor), nn.ReLU(inplace=True)] 
-                                  for _ in range(n_img_dense - 1)])
-        img_dense_layers = flatten_layers(img_dense_layers)
         
         self.radiomics = nn.Sequential (# block 1
                                         conv_3d_block (1, 64, kernel_size=5),
@@ -129,90 +125,27 @@ class Dual_MTLR (nn.Module):
                                         nn.AdaptiveAvgPool3d(1),
     
                                         # linear layers
-                                        nn.Flatten(),
-                                        *img_dense_layers,)
+                                        nn.Flatten(),)
         
-#         if n_concat_dense <= 0:
-#             self.mtlr = MTLR(512 * dense_factor + n_clin_vars, 29, num_events=num_events)
-#         else: 
-        concat_dense_layers = flatten_layers([[nn.Linear(512 * dense_factor + n_clin_vars, 512 * dense_factor + n_clin_vars),
-                                               nn.ReLU(inplace=True)] for _ in range(n_concat_dense)])
-        self.mtlr = nn.Sequential(*concat_dense_layers,
-                                  MTLR(512 * dense_factor + n_clin_vars, 29, num_events=num_events),)
+        if n_dense <= 0:
+            self.mtlr = MTLR(512 + n_clin_vars, 29, num_events=num_events)
+        else: 
+            fc_layers = [[nn.Linear(512 + n_clin_vars, 512 * dense_factor), 
+                          nn.ReLU(inplace=True), 
+                          nn.Dropout(dropout)]]   
+            
+            if n_dense > 1:    
+                fc_layers.extend([[nn.Linear(512 * dense_factor, 512 * dense_factor),
+                                   nn.ReLU(inplace=True),
+                                   nn.Dropout(dropout)] for _ in range(n_dense - 1)])
+            
+            fc_layers = flatten_layers(fc_layers)
+            self.mtlr = nn.Sequential(*fc_layers,
+                                      MTLR(512 * dense_factor, 29, num_events=num_events),)
 
     def forward (self, x):
         img, clin_var = x
         cnn = self.radiomics (img)
-        latent_concat = torch.cat ((cnn, clin_var), dim=1)
-        # print(img.shape, clin_var.shape, latent_concat.shape)        
+        latent_concat = torch.cat((cnn, clin_var), dim=1)
         return self.mtlr(latent_concat)
-    
-class Dual_Lite(nn.Module):
-    def __init__ (self):
-        super (Dual_Lite, self).__init__()
-        
-        self.radiomics = nn.Sequential (
-            # block 1
-            conv_3d_block (1, 64, kernel_size=5),
-            conv_3d_block (64, 128, kernel_size=3),
-            nn.MaxPool3d(kernel_size=2, stride=2),
-            
-            # block 2
-            conv_3d_block (128, 256, kernel_size=3),
-            conv_3d_block (256, 512, kernel_size=3),
-            nn.MaxPool3d(kernel_size=2, stride=2),
-            
-            # global pool
-            nn.AdaptiveAvgPool3d(1),
-            
-            # linear layers
-            nn.Flatten(),
-        )
-        
-        self.fc = nn.Sequential (
-            nn.Linear (512+n_clin_vars, 512), 
-            nn.Dropout (0.4),
-            nn.Linear (512, 1)
-       )
-        
-    def forward (self, x):
-        img, clin_var = x
-        cnn = self.radiomics (img) 
-        latent_concat = torch.cat ((cnn, clin_var), dim=1) 
-        return self.fc (latent_concat)
-
-    
-class Dual_Drop (nn.Module):
-    def __init__ (self):
-        super (Dual_Drop, self).__init__()
-        
-        self.radiomics = nn.Sequential (
-            # block 1
-            conv_3d_block (1, 64, kernel_size=5),
-            conv_3d_block (64, 128, kernel_size=3),
-            nn.MaxPool3d(kernel_size=2, stride=2),
-            
-            # block 2
-            conv_3d_block (128, 256, kernel_size=3),
-            conv_3d_block (256, 512, kernel_size=3),
-            nn.MaxPool3d(kernel_size=2, stride=2),
-            
-            # global pool
-            nn.AdaptiveAvgPool3d(1),
-            
-            # linear layers
-            nn.Flatten(),
-            nn.Linear (512, 1024),
-        )
-        
-        self.fc = nn.Sequential (
-            nn.Linear (1024+n_clin_vars, 1024), 
-            nn.Dropout (0.4),
-            nn.Linear (1024, 1)
-       )
-        
-    def forward (self, x):
-        img, clin_var = x
-        cnn = self.radiomics (img) # returns 512 
-        latent_concat = torch.cat ((cnn, clin_var), dim=1) # concatenates tensors sizes of 512 + 32 = 544
-        return self.fc (latent_concat)
+ 

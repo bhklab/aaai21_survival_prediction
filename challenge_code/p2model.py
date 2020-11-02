@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader, Subset
 from torch.optim import Adam
 from torch.optim.lr_scheduler import MultiStepLR
 from torchvision.transforms import Compose
+from torchsummary import summary
 
 import pandas as pd
 from sklearn.metrics import roc_auc_score, average_precision_score, mean_squared_error
@@ -58,11 +59,11 @@ class Challenger(pl.LightningModule):
 
         self.hparams = hparams
         # Default, Default_Air, Default_GN, Default_3X, Default_XL, Default_Pro, Default_Pad, Default_Pro_Max
-        self.model = Dual_MTLR(dense_factor=1, #Image_MTLR(dense_factor=1,
-                                n_img_dense=1,    # default==1
-                                n_concat_dense=0, # default==0
-                                num_events=2)     # added `cancer_death` in p2dataset.py line #101:102
+        self.model = Dual_MTLR(dense_factor=hparams.dense_factor, #Dual_MTLR
+                               n_dense=hparams.n_dense,      #default==1
+                               num_events=2)     # added `cancer_death` in p2dataset.py line #101:102
         
+        print(self.model)
         self.apply (self.init_params)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -343,15 +344,15 @@ class Challenger(pl.LightningModule):
         risk_path   = os.path.join(save_path, time_now+"_risk_pred.npy")
         
         ids = self.test_dataset.clinical_data["Study ID"]
-        pd.Series(pred_event, index=ids, name="event").to_csv(event_path)
-        pd.Series(pred_cancer, index=ids, name="event").to_csv(cancer_path)
-        np.save(risk_path, pred_risk)
+#         pd.Series(pred_event, index=ids, name="event").to_csv(event_path)
+#         pd.Series(pred_cancer, index=ids, name="event").to_csv(cancer_path)
+#         np.save(risk_path, pred_risk)
         
         # SAVE RESULTS
-#         results = pd.read_csv("/cluster/home/sejinkim/projects/aaai21_survival_prediction/data/predictions/test_results.csv", index_col=0)
-#         results.loc[time_now] = [loss, roc_auc_event, roc_auc_cancer, avg_prec_event, avg_prec_cancer, ci_event, ci_cancer]
+        results = pd.read_csv("/cluster/home/sejinkim/projects/aaai21_survival_prediction/data/predictions/test_results_new.csv", index_col=0)
+        results.loc[time_now] = [loss, roc_auc_event, roc_auc_cancer, avg_prec_event, avg_prec_cancer, ci_event, ci_cancer]
         
-#         results.to_csv("/cluster/home/sejinkim/projects/aaai21_survival_prediction/data/predictions/test_results.csv")
+        results.to_csv("/cluster/home/sejinkim/projects/aaai21_survival_prediction/data/predictions/test_results_new.csv")
         
         log = {"val/loss": loss,
                "val/roc_auc": roc_auc_event,
@@ -410,6 +411,12 @@ class Challenger(pl.LightningModule):
         
         parser.add_argument("--c1", type=float, default=1., 
                             help="Regularization term for MTLR backprop.")
+        
+        parser.add_argument("--dense_factor", type=int, default=1,
+                            help="Factor to multiply width of fc layer.")
+        
+        parser.add_argument("--n_dense", type=int, default=1,
+                            help="Number of fc layers.")
         
         
         return parser

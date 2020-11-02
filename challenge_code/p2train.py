@@ -10,17 +10,20 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from .p2model import Challenger
 from .utils import set_seed
 
-print("start")
-seed = np.random.randint(1, high=10000, size=1)[0]
-print(seed)
-set_seed(seed)
-np.seterr(divide='ignore', invalid='ignore')
-
 def main(hparams):
 #     if hparams.gpus == 0:
 #         raise ValueError(("Training on CPU is not supported, please run again "
 #                           "on a system with GPU and '--gpus' > 0."))
-
+    print("start")
+    if hparams.seed is not None:
+        seed = hparams.seed
+    else:
+        np.random.randint(1, high=10000, size=1)[0]
+    
+    print(seed)
+    set_seed(seed)
+    np.seterr(divide='ignore', invalid='ignore')
+    
     slurm_id = os.environ.get("SLURM_JOBID")
     if slurm_id is None:
         version = None
@@ -31,14 +34,15 @@ def main(hparams):
                                version=version)
     checkpoint_path = os.path.join(logger.experiment.get_logdir(),
                                    "checkpoints",
-                                   "aaai_{epoch:02d}-{loss:.2e}-{roc_auc:.2f}")
+                                   "aaaifinal_{epoch:02d}-{loss:.2e}-{roc_auc:.2f}")
     checkpoint_callback = ModelCheckpoint(filepath=checkpoint_path,
                                           save_top_k=5,
                                           monitor="val/roc_auc",
                                           mode="max")
     
     model = Challenger(hparams)
-    print (model)
+    #print (model)
+    
     trainer = Trainer.from_argparse_args(hparams, 
                                          checkpoint_callback=checkpoint_callback,
                                          logger=logger)
@@ -76,7 +80,10 @@ if __name__ == "__main__":
     
     parser.add_argument ("--design", type=str, default="default",
                         help="Choose architecture design")
-                         
+    
+    parser.add_argument ("--seed", type=int, default=None,
+                        help="Choose architecture design")
+    
 
     hparams = parser.parse_args()
     try:

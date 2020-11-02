@@ -31,4 +31,7 @@ python -m challenge_code.p2train\
           --max_epochs 500\
           --gpus 1\
           --exp_name aaai\
-          --design dual_mtlr\
+          --design aaai_final\
+          --dense_factor 1\
+          --n_dense 3\
+          --seed 1129\

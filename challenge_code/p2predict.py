@@ -35,7 +35,7 @@ def best_ckpt (arr):
     return arr[best_idx]
 
 def main(args):
-    models = sorted(glob.glob("/cluster/projects/radiomics/Temp/sejin/aaai21_survival_prediction/data/logs/aaai/dual_mtlr_155*"))
+    models = sorted(glob.glob("/cluster/projects/radiomics/Temp/sejin/aaai21_survival_prediction/data/logs/aaai/dual_mtlr_1556*"))
 
     best_checkpoints = []
     for model in models:

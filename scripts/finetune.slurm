@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=ckpt_cnn
+#SBATCH --job-name=toooon
 #SBATCH --mem=32G
 #SBATCH -t 1-00:00:00
 #SBATCH -c 16
@@ -20,7 +20,7 @@ conda activate aaai-survival
 
 RAW_DATA_PATH=/cluster/projects/radiomics/RADCURE-challenge/data
 
-python -m challenge_code.p2resume\
+python -m challenge_code.p2tune\
           $RAW_DATA_PATH\
           $RAW_DATA_PATH/training/clinical.csv\
           --cache_dir ./data/data_cache\

@@ -3,12 +3,12 @@ from argparse import ArgumentParser
 import errno
 import numpy as np
 import torch
-from pytorch_lightning import Trainer
+from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 
 from .p2model import Challenger
-from .utils import set_seed
+from torchsummary import summary
 
 def main(hparams):
 #     if hparams.gpus == 0:
@@ -18,10 +18,9 @@ def main(hparams):
     if hparams.seed is not None:
         seed = hparams.seed
     else:
-        np.random.randint(1, high=10000, size=1)[0]
-    
+        seed = np.random.randint(1, high=10000, size=1)[0]
     print(seed)
-    set_seed(seed)
+    seed_everything(seed)
     np.seterr(divide='ignore', invalid='ignore')
     
     slurm_id = os.environ.get("SLURM_JOBID")
@@ -41,14 +40,14 @@ def main(hparams):
                                           mode="max")
     
     model = Challenger(hparams)
-    #print (model)
+    print(hparams)
+    print(model)
+
     
     trainer = Trainer.from_argparse_args(hparams, 
                                          checkpoint_callback=checkpoint_callback,
-                                         logger=logger)
-    
-    # trainer.logger = logger
-    # trainer.checkpoint_callback = checkpoint_callback
+                                         logger=logger,
+                                         deterministic=True)
     trainer.fit(model)
 
 
@@ -67,7 +66,7 @@ if __name__ == "__main__":
                         help="Directory where training logs will be saved.")
     
     parser.add_argument("--cache_dir", type=str, default="./data/data_cache",
-                        help=("Directory where the preprocessed data will be saved."))
+                        help="Directory where the preprocessed data will be saved.")
     
     parser.add_argument("--pred_save_path", type=str, default="./data/predictions/baseline_cnn.csv",
                         help="Directory where final predictions will be saved.")

@@ -56,15 +56,24 @@ class Challenger(pl.LightningModule):
             Should usually be generated automatically by `argparse`.
         """
         super().__init__()
-
-        self.hparams = hparams
-        # Default, Default_Air, Default_GN, Default_3X, Default_XL, Default_Pro, Default_Pad, Default_Pro_Max
-        self.model = Dual_MTLR(dense_factor=hparams.dense_factor, #Dual_MTLR
-                               n_dense=hparams.n_dense,      #default==1
-                               num_events=2)     # added `cancer_death` in p2dataset.py line #101:102
+        # don't print hparams here, it already prints in `p2train.py`
         
-        print(self.model)
-        self.apply (self.init_params)
+        self.hparams = hparams
+        #print(hparams)
+        #if hparams.design == "aaai_cnn":
+#         self.model = Image_MTLR(dense_factor=hparams.dense_factor, 
+#                                 n_dense=hparams.n_dense, # default==1
+#                                 num_events=2)            # added `cancer_death` in p2dataset.py line #101:102            
+#         if hparams.design == "aaai_old":
+#         self.model = Dual_Old(dense_factor=hparams.dense_factor, 
+#                               n_dense=hparams.n_dense, # default==1
+#                               num_events=2)            # added `cancer_death` in p2dataset.py line #101:102   
+#         else:
+        self.model = Dual_MTLR(dense_factor=hparams.dense_factor, 
+                               n_dense=hparams.n_dense,  # default==1
+                               num_events=2)             # added `cancer_death` in p2dataset.py line #101:102
+        #print(self.model)
+        self.apply(self.init_params)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Run the forward pass on a batch of examples.
@@ -146,10 +155,10 @@ class Challenger(pl.LightningModule):
                                       transform=train_transform,
                                       cache_dir=self.hparams.cache_dir,
                                       num_workers=self.hparams.num_workers)
-        test_dataset = RadcureDataset("/cluster/projects/radiomics/RADCURE-challenge/data",
-                                      "/cluster/projects/radiomics/RADCURE-challenge/clinical_cancer_death.csv",
-#         test_dataset = RadcureDataset(self.hparams.root_directory,
-#                                       self.hparams.clinical_data_path,
+#         test_dataset = RadcureDataset("/cluster/projects/radiomics/RADCURE-challenge/data",
+#                                       "/cluster/projects/radiomics/RADCURE-challenge/clinical_cancer_death.csv",
+        test_dataset = RadcureDataset(self.hparams.root_directory,
+                                      self.hparams.clinical_data_path,
                                       self.hparams.patch_size,
                                       train=False,#set back to False at test phase
                                       transform=test_transform,
@@ -160,7 +169,7 @@ class Challenger(pl.LightningModule):
         val_size = floor(.1 / .7 * len(full_dataset)) # use 10% of all data for validation
         full_indices = range(len(full_dataset))
         full_targets = full_dataset.clinical_data["target_binary"]
-        train_indices, val_indices = train_test_split(full_indices, test_size=val_size, stratify=full_targets)
+        train_indices, val_indices = train_test_split(full_indices, test_size=val_size, stratify=full_targets, random_state=1129)
         train_dataset, val_dataset = Subset(full_dataset, train_indices), Subset(full_dataset, val_indices)
         val_dataset.dataset = copy(full_dataset)
         val_dataset.dataset.transform = test_transform
@@ -339,9 +348,9 @@ class Challenger(pl.LightningModule):
         save_path   = "/cluster/home/sejinkim/projects/aaai21_survival_prediction/data/predictions/"
         time_now    = dt.now().strftime("%y%m%d_%H%M%S")
         print('\n'+time_now+'\n')
-        event_path  = os.path.join(save_path, time_now+"_event_pred.csv")
-        cancer_path = os.path.join(save_path, time_now+"_cancer_pred.csv")
-        risk_path   = os.path.join(save_path, time_now+"_risk_pred.npy")
+#         event_path  = os.path.join(save_path, time_now+"_event_pred.csv")
+#         cancer_path = os.path.join(save_path, time_now+"_cancer_pred.csv")
+#         risk_path   = os.path.join(save_path, time_now+"_risk_pred.npy")
         
         ids = self.test_dataset.clinical_data["Study ID"]
 #         pd.Series(pred_event, index=ids, name="event").to_csv(event_path)

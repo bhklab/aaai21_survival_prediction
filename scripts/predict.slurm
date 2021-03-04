@@ -2,7 +2,7 @@
 #SBATCH --job-name=aaai_predict
 #SBATCH --mem=16G
 #SBATCH -t 10:00:00
-#SBATCH -c 6
+#SBATCH -c 8
 #SBATCH -N 1
 #SBATCH -p gpu_radiomics
 #SBATCH -A radiomics_gpu
@@ -22,5 +22,9 @@ RAW_DATA_PATH=/cluster/projects/radiomics/RADCURE-challenge/data
 python -m challenge_code.p2predict\
           $RAW_DATA_PATH\
           $RAW_DATA_PATH/test/clinical.csv\
-          --num_workers 6\
+          --num_workers 8\
           --gpus 1\
+          --design aaai_dual\
+          --dense_factor 1\
+          --n_dense 3\
+          --seed 1129\

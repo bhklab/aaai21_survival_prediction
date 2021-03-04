@@ -2,21 +2,16 @@ from argparse import ArgumentParser
 
 import numpy as np
 import torch
-from pytorch_lightning import Trainer
+from pytorch_lightning import Trainer, seed_everything
 import glob
 
 from .p2model import Challenger
-
-np.random.seed(42)
-torch.manual_seed(42)
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
 
 def best_ckpt (arr):
     """
     Returns checkpoint with highest ROC_AUC or highest LOSS
     """
-    best_idx, best_epoch, best_loss, best_auc = 0, 0, 0, 0
+    best_idx, best_epoch, best_loss, best_auc = 0, 0, 0, 0    
     
     for idx, c in enumerate(arr):
         epoch, loss, auc = c.split("/")[-1].split("-")
@@ -34,8 +29,17 @@ def best_ckpt (arr):
 
     return arr[best_idx]
 
-def main(args):
-    models = sorted(glob.glob("/cluster/projects/radiomics/Temp/sejin/aaai21_survival_prediction/data/logs/aaai/dual_mtlr_1556*"))
+def main(hparams):
+    print("start")
+    #print(hparams)
+    if hparams.seed is not None:
+        seed = hparams.seed
+    else:
+        np.random.randint(1, high=10000, size=1)[0]
+    print(seed)
+    seed_everything(seed)
+    
+    models = sorted(glob.glob(f"/cluster/projects/radiomics/Temp/sejin/aaai21_survival_prediction/data/logs/aaai/{hparams.design}_169*"))
 
     best_checkpoints = []
     for model in models:
@@ -48,15 +52,16 @@ def main(args):
     for ckpt in best_checkpoints:
         print("now testing:", ckpt[81:])
         try:
-            model = Challenger.load_from_checkpoint(ckpt)
+            model = Challenger.load_from_checkpoint(ckpt, hparams=hparams)
             model.hparams.logger = None
             model.hparams.checkpoint_callback = None
             model.prepare_data()
-            trainer = Trainer.from_argparse_args(args)
+            print(model)
+            trainer = Trainer.from_argparse_args(hparams)
             trainer.test(model)
-        except RuntimeError:
+        except RuntimeError as e:
+            print(e)
             print(ckpt[81:], ": FAILED\n\n")
-
 
 if __name__ == "__main__":
     parser = ArgumentParser()
@@ -81,6 +86,14 @@ if __name__ == "__main__":
     parser.add_argument("--num_workers", type=int, default=1,
                         help="Number of worker processes to use for data loading.")
     
+    parser.add_argument("--exp_name", type=str, default="challenger",
+                        help="Experiment name for logging purposes.")
     
-    args = parser.parse_args()
-    main(args)
+    parser.add_argument ("--design", type=str, default="default",
+                        help="Choose architecture design")
+    
+    parser.add_argument ("--seed", type=int, default=None,
+                        help="Choose architecture design")
+    
+    hparams = parser.parse_args()
+    main(hparams)

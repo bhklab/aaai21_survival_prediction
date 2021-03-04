@@ -42,7 +42,7 @@ class RadcureDataset(Dataset):
     retrieval during training.
     """
     def __init__(self,
-                 root_directory: str,
+                 root_directory: str = "/cluster/projects/radiomics/Temp/sejin",
                  clinical_data_path: str,
                  patch_size: int = 50,
                  target_col: str = "target_binary",
@@ -86,7 +86,6 @@ class RadcureDataset(Dataset):
         
         if self.train:
             self.split = "training"
-            self.clinical_data = self.make_data(clinical_data_path, split=self.split)
         else:
             self.split = "test"
         
@@ -98,12 +97,15 @@ class RadcureDataset(Dataset):
         
         self.clinical_data = self.make_data(df, split=self.split)
         
+        if not self.train:
+            self.clinical_data.insert(11, 'N Stage_NX', np.zeros(self.clinical_data.shape[0]))
+        
         #if self.train:
         self.time_bins = make_time_bins(self.clinical_data["time"], event=self.clinical_data["event"])
 
         multi_events   = self.clinical_data.apply(lambda x: self.multiple_events(x), axis=1)
         self.y         = encode_survival(self.clinical_data["time"], multi_events, self.time_bins)
-        # self.y        = encode_survival(clinical_data["time"], clinical_data["event"], time_bins) # just `event`
+        # self.y        = encode_survival(clinical_data["time"], clinical_data["event"], time_bins) # single event
         
         self.cache_path = os.path.join(cache_dir, self.split)
 
@@ -152,36 +154,28 @@ class RadcureDataset(Dataset):
         
         # binarize T stage as T1/2 = 0, T3/4 = 1
         clinical_data["T Stage"] = clinical_data["T Stage"].map(
-            lambda x: "T1/2" if x in ["T1", "T1a", "T1b", "T2"] else "T3/4")
-
+            lambda x: "T1/2" if x in ["T1", "T1a", "T1b", "T2"] else "T3/4", na_action="ignore")
+        
         # use more fine-grained grouping for N stage
-        clinical_data["N Stage"] = clinical_data["N Stage"].map({
-                                                                "N0":  "N0",
-                                                                "N1":  "N1",
-                                                                "N2":  "N2",
-                                                                "N2a": "N2",
-                                                                "N2b": "N2",
-                                                                "N2c": "N2",
-                                                                "N3":  "N3",
-                                                                "N3a": "N3",
-                                                                "N3b": "N3"})
+        clinical_data["N Stage"] = clinical_data["N Stage"].str.slice(0, 2)
         
         clinical_data["Stage"] = clinical_data["Stage"].map(
-            lambda x: "I/II" if x in ["I", "II", "IIA"] else "III/IV")
-
+            lambda x: "I/II" if x in ["I", "II", "IIA"] else "III/IV", na_action="ignore")
+        
         clinical_data["ECOG"] = clinical_data["ECOG"].map(
-            lambda x: ">0" if x > 0 else "0")
+            lambda x: ">0" if x > 0 else "0", na_action="ignore")
 
         clinical_data = pd.get_dummies(clinical_data,
                                        columns=["Sex",
-                                                "T Stage",
                                                 "N Stage",
-                                                "Disease Site",
-                                                "Stage",
-                                                "ECOG"],
+                                                "Disease Site"],
                                        drop_first=True)
-        
-        clinical_data = pd.get_dummies(clinical_data, columns=["HPV Combined"])
+        clinical_data = pd.get_dummies(clinical_data,
+                                       columns=["HPV Combined",
+                                                "T Stage",
+                                                "Stage",
+                                                "ECOG"])
+    
         return clinical_data
 
     def _prepare_data(self):

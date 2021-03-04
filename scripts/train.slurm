@@ -24,14 +24,14 @@ python -m challenge_code.p2train\
           $RAW_DATA_PATH/training/clinical.csv\
           --cache_dir ./data/data_cache\
           --num_workers 0\
-          --batch_size 8\
+          --batch_size 16\
           --lr 1e-4\
           --c1 10\
           --weight_decay 1e-4\
-          --max_epochs 500\
+          --max_epochs 350\
           --gpus 1\
           --exp_name aaai\
-          --design aaai_final\
+          --design aaai_old\
           --dense_factor 1\
           --n_dense 3\
           --seed 1129\

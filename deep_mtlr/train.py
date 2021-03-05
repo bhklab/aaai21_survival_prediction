@@ -7,7 +7,7 @@ from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 
-from .p2model import Challenger
+from .model import Challenger
 from torchsummary import summary
 
 def main(hparams):
@@ -62,13 +62,13 @@ if __name__ == "__main__":
     parser.add_argument("clinical_data_path", type=str,
                         help="Path to CSV file containing the clinical data.")
     
-    parser.add_argument("--logdir", type=str, default="/cluster/projects/radiomics/Temp/sejin/aaai21_survival_prediction/data/logs",
+    parser.add_argument("logdir", type=str,
                         help="Directory where training logs will be saved.")
     
     parser.add_argument("--cache_dir", type=str, default="./data/data_cache",
                         help="Directory where the preprocessed data will be saved.")
     
-    parser.add_argument("--pred_save_path", type=str, default="./data/predictions/baseline_cnn.csv",
+    parser.add_argument("--pred_save_path", type=str, default="./data/predictions/cnn.csv",
                         help="Directory where final predictions will be saved.")
     
     parser.add_argument("--num_workers", type=int, default=1,
@@ -77,7 +77,7 @@ if __name__ == "__main__":
     parser.add_argument("--exp_name", type=str, default="challenger",
                         help="Experiment name for logging purposes.")
     
-    parser.add_argument ("--design", type=str, default="default",
+    parser.add_argument ("--design", type=str, default="aaai_cnn",
                         help="Choose architecture design")
     
     parser.add_argument ("--seed", type=int, default=None,

@@ -1,6 +1,7 @@
 data/
 lightning_logs/
 .ipynb_checkpoints/
+not_public/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

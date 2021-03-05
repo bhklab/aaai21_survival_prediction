@@ -17,9 +17,8 @@ from sklearn.metrics import roc_auc_score, average_precision_score, mean_squared
 from sklearn.model_selection import train_test_split
 from lifelines.utils import concordance_index
 
-from .p2dataset import RadcureDataset
+from .dataset import RadcureDataset
 from .transforms import *
-#from .nets.branched import Default, Default_XL, Default_Pro, Default_Pro_Max, Default_Boost, Default_Extra
 from .nets.dual import *
 
 from torchmtlr import mtlr_neg_log_likelihood, mtlr_survival, mtlr_risk
@@ -56,23 +55,17 @@ class Challenger(pl.LightningModule):
             Should usually be generated automatically by `argparse`.
         """
         super().__init__()
-        # don't print hparams here, it already prints in `p2train.py`
         
         self.hparams = hparams
-        #print(hparams)
-        #if hparams.design == "aaai_cnn":
-#         self.model = Image_MTLR(dense_factor=hparams.dense_factor, 
-#                                 n_dense=hparams.n_dense, # default==1
-#                                 num_events=2)            # added `cancer_death` in p2dataset.py line #101:102            
-#         if hparams.design == "aaai_old":
-#         self.model = Dual_Old(dense_factor=hparams.dense_factor, 
-#                               n_dense=hparams.n_dense, # default==1
-#                               num_events=2)            # added `cancer_death` in p2dataset.py line #101:102   
-#         else:
-        self.model = Dual_MTLR(dense_factor=hparams.dense_factor, 
+        if hparams.design == "aaai_cnn":
+            self.model = Image_MTLR(dense_factor=hparams.dense_factor, 
+                                    n_dense=hparams.n_dense, # default==1
+                                    num_events=2)
+        else:
+            self.model = Dual_MTLR(dense_factor=hparams.dense_factor, 
                                n_dense=hparams.n_dense,  # default==1
                                num_events=2)             # added `cancer_death` in p2dataset.py line #101:102
-        #print(self.model)
+
         self.apply(self.init_params)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -155,12 +148,10 @@ class Challenger(pl.LightningModule):
                                       transform=train_transform,
                                       cache_dir=self.hparams.cache_dir,
                                       num_workers=self.hparams.num_workers)
-#         test_dataset = RadcureDataset("/cluster/projects/radiomics/RADCURE-challenge/data",
-#                                       "/cluster/projects/radiomics/RADCURE-challenge/clinical_cancer_death.csv",
         test_dataset = RadcureDataset(self.hparams.root_directory,
                                       self.hparams.clinical_data_path,
                                       self.hparams.patch_size,
-                                      train=False,#set back to False at test phase
+                                      train=False,#set to False for test phase
                                       transform=test_transform,
                                       cache_dir=self.hparams.cache_dir,
                                       num_workers=self.hparams.num_workers)
@@ -225,8 +216,6 @@ class Challenger(pl.LightningModule):
         """
         x, y, labels = batch
         output = self.forward(x).squeeze(1)
-        # print (type(output))
-        # loss = F.binary_cross_entropy_with_logits(output, y.float(), pos_weight=self.pos_weight)
         loss = mtlr_neg_log_likelihood(output, y.float(), self.model, self.hparams.c1, average=True)
         self.log('training/loss', loss)
         
@@ -239,10 +228,7 @@ class Challenger(pl.LightningModule):
         """
         x, y, labels = batch
         output = self.forward(x).squeeze(1)
-        # print (type(output))
-        # loss = F.binary_cross_entropy_with_logits(output, y.float(), pos_weight=self.pos_weight)
         loss = mtlr_neg_log_likelihood(output, y.float(), self.model, self.hparams.c1, average=True)
-        # output = torch.sigmoid(output)
         
         return {"loss": loss, "pred_prob": output, "y": y, "labels": labels}
 
@@ -270,7 +256,6 @@ class Challenger(pl.LightningModule):
         roc_auc_cancer  = roc_auc_score(true_cancer, pred_cancer)
         avg_prec_event  = average_precision_score(true_event, pred_event)
         avg_prec_cancer = average_precision_score(true_cancer, pred_cancer)
-        #print(roc_auc_event, roc_auc_cancer, avg_prec_event, avg_prec_cancer)
         
         pred_risk = mtlr_risk(pred_prob, 2).numpy()
         
@@ -283,7 +268,6 @@ class Challenger(pl.LightningModule):
             roc_auc_total = float("nan")
         
         avg_prec_total = average_precision_score(y, pred_prob, average='samples')
-        # mse_time = mean_squared_error(y, pred_prob)
 
         # log loss and metrics to Tensorboard
         log = {"val/loss": loss,
@@ -293,7 +277,6 @@ class Challenger(pl.LightningModule):
                "val/precision_cancer": avg_prec_cancer,
                "val/ci": ci_event,
                "val/ci_cancer": ci_cancer,
-               # "val/mse_time": mse_time
                }
         
         self.log_dict(log)
@@ -329,47 +312,19 @@ class Challenger(pl.LightningModule):
         roc_auc_cancer  = roc_auc_score(true_cancer, pred_cancer)
         avg_prec_event  = average_precision_score(true_event, pred_event)
         avg_prec_cancer = average_precision_score(true_cancer, pred_cancer)
-#         #print(roc_auc_event, roc_auc_cancer, avg_prec_event, avg_prec_cancer)
         
         pred_risk = mtlr_risk(pred_prob, 2).numpy()
-#         #print(pred_risk)
         
         ci_event  = concordance_index(true_time, -pred_risk[:, 0], event_observed=true_event)
         ci_cancer = concordance_index(true_time, -pred_risk[:, 1], event_observed=true_cancer)
         
-#         try:
-#             roc_auc_total = roc_auc_score(y, pred_prob, average='samples')
-#         except ValueError as e:
-#             roc_auc_total = float("nan")
-        
-#         avg_prec_total = average_precision_score(y, pred_prob, average='samples')
-        
-        # hard-coded paths because hparams isn't passing flags properly :(
-        save_path   = "/cluster/home/sejinkim/projects/aaai21_survival_prediction/data/predictions/"
-        time_now    = dt.now().strftime("%y%m%d_%H%M%S")
-        print('\n'+time_now+'\n')
-#         event_path  = os.path.join(save_path, time_now+"_event_pred.csv")
-#         cancer_path = os.path.join(save_path, time_now+"_cancer_pred.csv")
-#         risk_path   = os.path.join(save_path, time_now+"_risk_pred.npy")
-        
-        ids = self.test_dataset.clinical_data["Study ID"]
-#         pd.Series(pred_event, index=ids, name="event").to_csv(event_path)
-#         pd.Series(pred_cancer, index=ids, name="event").to_csv(cancer_path)
-#         np.save(risk_path, pred_risk)
-        
-        # SAVE RESULTS
-        results = pd.read_csv("/cluster/home/sejinkim/projects/aaai21_survival_prediction/data/predictions/test_results_new.csv", index_col=0)
-        results.loc[time_now] = [loss, roc_auc_event, roc_auc_cancer, avg_prec_event, avg_prec_cancer, ci_event, ci_cancer]
-        
-        results.to_csv("/cluster/home/sejinkim/projects/aaai21_survival_prediction/data/predictions/test_results_new.csv")
-        
-        log = {"val/loss": loss,
-               "val/roc_auc": roc_auc_event,
-               "val/roc_auc_cancer": roc_auc_cancer,
-               "val/precision": avg_prec_event,
-               "val/precision_cancer": avg_prec_cancer,
-               "val/ci": ci_event,
-               "val/ci_cancer": ci_cancer,
+        log = {"test/loss": loss,
+               "test/roc_auc": roc_auc_event,
+               "test/roc_auc_cancer": roc_auc_cancer,
+               "test/precision": avg_prec_event,
+               "test/precision_cancer": avg_prec_cancer,
+               "test/ci": ci_event,
+               "test/ci_cancer": ci_cancer,
                }
         self.log_dict(log)
         return

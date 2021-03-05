@@ -42,7 +42,7 @@ class RadcureDataset(Dataset):
     retrieval during training.
     """
     def __init__(self,
-                 root_directory: str = "/cluster/projects/radiomics/Temp/sejin",
+                 root_directory: str,
                  clinical_data_path: str,
                  patch_size: int = 50,
                  target_col: str = "target_binary",
@@ -76,7 +76,6 @@ class RadcureDataset(Dataset):
         num_workers
             Number of parallel processes to use for data preprocessing.
         """
-        # print (clinical_data_path)
         self.root_directory = root_directory
         self.patch_size = patch_size
         self.target_col = target_col
@@ -88,19 +87,12 @@ class RadcureDataset(Dataset):
             self.split = "training"
         else:
             self.split = "test"
+
+        self.clinical_data = self.make_data(clinical_data_path, split=self.split)
         
-        df1 = pd.read_csv("/cluster/projects/radiomics/RADCURE-challenge/clinical_cancer_death.csv")
-        df2 = pd.read_csv("/cluster/projects/radiomics/RADCURE-challenge/data/clinical_test.csv")
-        df3 = pd.read_csv("/cluster/projects/radiomics/RADCURE-challenge/data/clinical.csv")
-        df = pd.merge(df1, pd.concat([df2[["Study ID", "ECOG"]], df3[["Study ID", "ECOG"]]]), 
-                      how='outer', on='Study ID').drop("EGFRI", axis=1)
-        
-        self.clinical_data = self.make_data(df, split=self.split)
-        
-        if not self.train:
+        if not self.train: # missing OHE in test set
             self.clinical_data.insert(11, 'N Stage_NX', np.zeros(self.clinical_data.shape[0]))
         
-        #if self.train:
         self.time_bins = make_time_bins(self.clinical_data["time"], event=self.clinical_data["event"])
 
         multi_events   = self.clinical_data.apply(lambda x: self.multiple_events(x), axis=1)
@@ -109,11 +101,6 @@ class RadcureDataset(Dataset):
         
         self.cache_path = os.path.join(cache_dir, self.split)
 
-#         if not self.train and len(self.clinical_data) == 0:
-#             warn(("The test set is not available at this stage of the challenge."
-#                   " Testing will be disabled"), UserWarning)
-#         else:
-#             # TODO we should also re-create the cache when the patch size is changed
         if not os.path.exists(self.cache_path):
             os.makedirs(self.cache_path)
         
@@ -144,8 +131,9 @@ class RadcureDataset(Dataset):
                          .query("split == @split")
                          # .set_index("Study ID")
                          .drop(["split"], axis=1, errors="ignore"))
-        # if split == "training":
+
         clinical_data = clinical_data.rename(columns={"death": "event", "survival_time": "time"})
+
         # Convert time to months
         clinical_data["time"] *= 12
         
@@ -232,7 +220,7 @@ class RadcureDataset(Dataset):
         """
         
         try:      # training data
-            # clin_var_data = self.clinical_data.drop(["target_binary", 'time', 'event', 'Study ID'], axis=1)
+            # clin_var_data = self.clinical_data.drop(["target_binary", 'time', 'event', 'Study ID'], axis=1) # single event
             clin_var_data = self.clinical_data.drop(["target_binary", 'time', 'event', 'cancer_death', 'Study ID'], axis=1)
         except:   # test data
             clin_var_data = self.clinical_data.drop(['Study ID'], axis=1)

@@ -1,2 +1,3 @@
-# aaai21_survival_prediction
-AAAI Survival Prediction Challenge
+# Deep-CR MTLR: a Multi-Modal Approach for Cancer Survival Prediction with Competing Risks
+
+### Getting started

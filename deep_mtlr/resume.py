@@ -7,7 +7,7 @@ from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 
-from .p2model import Challenger
+from .model import Challenger
 
 np.random.seed(42)
 torch.manual_seed(42)
